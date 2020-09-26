@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
     }
     else
     {
-        fprintf(2,"grind: fork failed\n");
+        fprintf(2,"pingpong: fork failed\n");
         exit(1);
     }
 
