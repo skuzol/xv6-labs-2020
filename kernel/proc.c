@@ -6,6 +6,12 @@
 #include "proc.h"
 #include "defs.h"
 
+uint64 nproc = 0;
+
+uint64 getnproc(){
+  return nproc;
+}
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -113,6 +119,8 @@ found:
     return 0;
   }
 
+  nproc += 1;
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -126,6 +134,8 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+
+  p->trace_mask = 0;
 
   return p;
 }
@@ -150,6 +160,7 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  nproc -= 1;
 }
 
 // Create a user page table for a given process,
@@ -294,6 +305,8 @@ fork(void)
   pid = np->pid;
 
   np->state = RUNNABLE;
+
+  np->trace_mask = p->trace_mask;
 
   release(&np->lock);
 
