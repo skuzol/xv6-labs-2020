@@ -47,12 +47,72 @@ kvminit()
   kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 }
 
+pagetable_t
+kvmcreate()
+{
+  pagetable_t kpagetable = (pagetable_t) kalloc();
+  if(kpagetable==0)
+    return 0;
+  memset(kpagetable, 0, PGSIZE);
+
+  for(int i=1;i<512;i++)
+    kpagetable[i]=kernel_pagetable[i];
+
+  // uart registers
+  if(mappages(kpagetable, UART0, PGSIZE, UART0, PTE_R | PTE_W)<0){
+    kvmfree(kpagetable);
+    return 0;
+  }
+
+  // virtio mmio disk interface
+  if(mappages(kpagetable, VIRTIO0, PGSIZE, VIRTIO0, PTE_R | PTE_W)<0){
+    kvmfree(kpagetable);
+    return 0;
+  }
+
+  // PLIC
+  if(mappages(kpagetable, PLIC, 0x400000, PLIC, PTE_R | PTE_W)<0){
+    kvmfree(kpagetable);
+    return 0;
+  }
+
+  return kpagetable;
+}
+
+void
+kvmfree(pagetable_t kpagetable)
+{
+  pte_t mid_pte=kpagetable[0];
+  pagetable_t mid_level=(pagetable_t)PTE2PA(mid_pte);
+  for(int i=0;i<512;i++){
+    pte_t pte=mid_level[i];
+    if(pte & PTE_V){
+      uint64 bottom_level = PTE2PA(pte);
+      kfree((void *)bottom_level);
+      mid_level[i]=0;
+    }
+  }
+  kfree((void *)mid_level);
+  kfree((void *)kpagetable);
+}
+
 // Switch h/w page table register to the kernel's page table,
 // and enable paging.
 void
 kvminithart()
 {
   w_satp(MAKE_SATP(kernel_pagetable));
+  sfence_vma();
+}
+
+void
+kvmswitch_kernel(){
+  kvmswitch(kernel_pagetable);
+}
+
+void 
+kvmswitch(pagetable_t kpagetable){
+  w_satp(MAKE_SATP(kpagetable));
   sfence_vma();
 }
 
