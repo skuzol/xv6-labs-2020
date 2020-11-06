@@ -13,6 +13,7 @@ extern char trampoline[], uservec[], userret[];
 
 // in kernelvec.S, calls kerneltrap().
 void kernelvec();
+int cow_handler(pagetable_t,uint64);
 
 extern int devintr();
 
@@ -67,6 +68,11 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  }else if(r_scause()==15){
+    // fault when writing page, maybe cow fault.
+    if(cow_handler(p->pagetable,r_stval())!=0){
+      p->killed=1;
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
@@ -81,6 +87,33 @@ usertrap(void)
     yield();
 
   usertrapret();
+}
+
+// return 0 if cow fault handled,
+// or -1 if process should be killed.
+int
+cow_handler(pagetable_t pagetable, uint64 va)
+{
+  uint64 pa;
+  pte_t *pte;
+  char *mem;
+  uint flags;
+
+  pte=walk(pagetable, va, 0);
+  if(pte==0)
+    return -1;
+  if((*pte&PTE_V)==0)
+    return -1;
+  if((*pte&PTE_C)==0)
+    return -1;
+  pa=PTE2PA(*pte);
+  if((mem=kalloc())==0)
+    return -1;
+  memmove(mem,(char *)pa,PGSIZE);
+  flags=(PTE_FLAGS(*pte) & (~PTE_C)) | PTE_W;
+  *pte = PA2PTE((uint64)mem) | flags;
+  kfree((void*)pa);
+  return 0;
 }
 
 //
